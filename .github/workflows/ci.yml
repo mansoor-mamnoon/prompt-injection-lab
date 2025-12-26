@@ -19,8 +19,11 @@ jobs:
       - name: Install uv
         run: curl -LsSf https://astral.sh/uv/install.sh | sh
 
-      - name: Install deps
-        run: ~/.local/bin/uv sync
+      - name: Install deps (including project)
+        run: |
+          ~/.local/bin/uv sync
+          ~/.local/bin/uv pip install -e .
+
 
       - name: Lint
         run: ~/.local/bin/uv run make lint
