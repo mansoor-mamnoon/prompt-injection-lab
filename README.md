@@ -1,4 +1,4 @@
-# Prompt Injection Lab
+# AgentGuard
 
 A prompt-injection red-teaming and defense framework for LLM agents with tool access.
 
