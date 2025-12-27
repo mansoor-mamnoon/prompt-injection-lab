@@ -9,6 +9,7 @@ from typing import Any
 
 from backend.agent import decide_action
 from backend.messages import MessageSegment, trust_for_source
+from backend.policy_engine import PolicyEngine
 from backend.render import render_prompt
 from backend.tools import get_email, post_message, search_docs
 from backend.transcript import TranscriptLogger, new_run_id
@@ -166,19 +167,70 @@ def run_single_case(case: dict[str, Any], mode: str) -> None:
     tlog.log("tools", {"tools": [vars(ts) for ts in tools]})
 
     # Agent decision (deterministic)
+    # -----------------------------
+    # POLICY ENGINE (Day 6)
+    # -----------------------------
+    engine = PolicyEngine()
+
+    # Create tool name list for policy decisions
+    tool_names = [t.name for t in tools]
+
+    # If defended, evaluate policy BEFORE agent sees prompt
+    allowed_tool_names = tool_names
+    if mode == "defended":
+        pd = engine.evaluate(system_prompt, segments, user_prompt, tool_names)
+        tlog.log("policy_decision", {"action": pd.action, "reason": pd.reason})
+
+        if pd.allowed_tool_names is not None:
+            allowed_tool_names = pd.allowed_tool_names
+
+        if pd.action == "block":
+            tlog.log("blocked", {"reason": pd.reason})
+            tlog.log("final_answer", {"text": "I can’t comply with that request."})
+            t_end_ms = int(time.time() * 1000)
+            tlog.log(
+                "run_end", {"attack_id": case.get("attack_id", ""), "mode": mode, "ts_ms": t_end_ms}
+            )
+            print(
+                f"[BLOCKED] {case.get('attack_id', '?')} ({attack_type}) [{mode}] -> runs/{run_id}.jsonl"
+            )
+            return
+
+        if pd.action == "rewrite" and pd.rewritten_user_prompt is not None:
+            user_prompt = pd.rewritten_user_prompt
+
+        # Apply tool downgrade (remove disallowed tools)
+        tools = [t for t in tools if t.name in allowed_tool_names]
+
+    # -----------------------------
+    # AGENT DECISION
+    # -----------------------------
     decision = decide_action(system_prompt, user_prompt, [], tools)
     tlog.log("decision", {"decision": vars(decision)})
 
-    # Execute tool call if chosen
+    # Enforce tool policy at execution time
+    allowed_tool_names = {t.name for t in tools}
+
     if decision.type == "tool_call":
+        if decision.name not in allowed_tool_names:
+            tlog.log("blocked", {"reason": f"Policy removed tool {decision.name}."})
+            tlog.log("final_answer", {"text": "Blocked unsafe tool call."})
+            t_end_ms = int(time.time() * 1000)
+            tlog.log(
+                "run_end",
+                {"attack_id": case.get("attack_id", ""), "mode": mode, "ts_ms": t_end_ms},
+            )
+            print(f"[BLOCKED] {case.get('attack_id', '?')} ({attack_type}) [{mode}]")
+            return
+
         tool_fn = TOOL_REGISTRY.get(decision.name)
         if tool_fn is None:
             tlog.log("error", {"msg": f"Tool not found: {decision.name}"})
         else:
             tlog.log("tool_call", {"name": decision.name, "args": decision.args})
             try:
-                tool_result = tool_fn(**decision.args)
-                tlog.log("tool_result", {"name": decision.name, "result": tool_result})
+                result = tool_fn(**decision.args)
+                tlog.log("tool_result", {"name": decision.name, "result": result})
             except Exception as e:
                 tlog.log("tool_error", {"name": decision.name, "error": str(e)})
 
@@ -191,7 +243,7 @@ def run_single_case(case: dict[str, Any], mode: str) -> None:
     t_end_ms = int(time.time() * 1000)
     tlog.log("run_end", {"attack_id": case.get("attack_id", ""), "mode": mode, "ts_ms": t_end_ms})
 
-    print(f"[OK] {case.get('attack_id','?')} ({attack_type}) [{mode}] -> runs/{run_id}.jsonl")
+    print(f"[OK] {case.get('attack_id', '?')} ({attack_type}) [{mode}] -> runs/{run_id}.jsonl")
 
 
 def main() -> None:
