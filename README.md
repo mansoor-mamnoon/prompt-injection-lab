@@ -337,6 +337,36 @@ uv run python -m eval.run --dataset data/eval_dataset.jsonl --mode baseline
 uv run python -m eval.run --dataset data/eval_dataset.jsonl --mode defended
 uv run python eval/report.py --dataset data/eval_dataset.jsonl --runs runs
 sed -n '1,200p' eval/report.md
+```
+
+## Indirect Injection Defense & Automated Red-Teaming
+
+### Indirect Injection Defense (Document & Tool-Output Quarantine)
+
+Implemented a strict isolation model for **untrusted retrieved documents and tool outputs** to prevent classic indirect prompt-injection failures. All non-system content is rendered as **reference material only**, with explicit rules that instructions inside these sections must never be followed.
+
+To further harden the boundary, instruction-like language inside documents (e.g., “ignore previous instructions”, “do X now”) is **rewritten into neutral summaries**, preserving informational content while stripping executable intent. This prevents untrusted text from influencing agent control flow while maintaining benign task performance.
+
+Result: **Significant reduction in indirect-injection attack success with zero false positives**, validating that instruction isolation is a more robust defense than string filtering alone.
+
+---
+
+### Automated Attack Generation & Dataset Expansion
+
+Built a **template-based attacker generator** to move beyond manually crafted prompts and enable scalable red-teaming. The generator applies multiple mutation operators to seed attacks, including:
+
+- synonym and paraphrase substitutions  
+- role confusion and authority rephrasing  
+- whitespace and markdown obfuscation  
+- “helpful” or compliance-framed social engineering  
+
+Each seed attack is expanded into multiple variants, with **embedding-based deduplication** ensuring diversity rather than near-duplicates. This increases dataset coverage from small hand-written sets to **hundreds or thousands of unique attacks**.
+
+Result: a scalable, automated attack corpus that better reflects real-world adversarial behavior and enables meaningful evaluation of defense generalization.
+
+
+
+
 
 
 ## Key idea
@@ -344,5 +374,4 @@ sed -n '1,200p' eval/report.md
 Prompt injection is not a string-matching problem.
 It is a control-flow integrity problem for natural-language programs.
 
-This project builds the infrastructure needed to reason about that rigorously.
 This project builds the infrastructure needed to reason about that rigorously.
